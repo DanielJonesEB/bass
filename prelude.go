@@ -1,6 +1,15 @@
 package bass
 
+import (
+	"embed"
+	"errors"
+	"io"
+)
+
 var ground = NewEnv()
+
+//go:embed stdlib/*.bass
+var stdlib embed.FS
 
 func init() {
 	for k, v := range primPreds {
@@ -182,6 +191,33 @@ func init() {
 
 		return true
 	}))
+
+	// return
+
+	boot, err := stdlib.Open("stdlib/boot.bass")
+	if err != nil {
+		panic(err)
+	}
+
+	defer boot.Close()
+
+	r := NewReader(boot)
+
+	for {
+		form, err := r.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			panic(err)
+		}
+
+		_, err = form.Eval(ground)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
 func New() *Env {

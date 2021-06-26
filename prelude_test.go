@@ -424,39 +424,63 @@ func TestPreludeConstructors(t *testing.T) {
 		{
 			Name: "invalid op 0",
 			Bass: "(op)",
-			Err: bass.ArityError{
-				Name: "op",
-				Need: 4,
-				Have: 1,
+			Err: bass.BindMismatchError{
+				Need: bass.Pair{
+					A: bass.Symbol("formals"),
+					D: bass.Pair{
+						A: bass.Symbol("eformal"),
+						D: bass.Symbol("body"),
+					},
+				},
+				Have: bass.Empty{},
 			},
 		},
 		{
 			Name: "invalid op 1",
 			Bass: "(op [x])",
-			Err: bass.ArityError{
-				Name: "op",
-				Need: 4,
-				Have: 2,
+			Err: bass.BindMismatchError{
+				Need: bass.Pair{
+					A: bass.Symbol("eformal"),
+					D: bass.Symbol("body"),
+				},
+				Have: bass.Empty{},
 			},
 		},
 		{
 			Name: "invalid op 2",
 			Bass: "(op [x] _)",
-			Err: bass.ArityError{
-				Name: "op",
-				Need: 4,
-				Have: 3,
+			Err: bass.BindMismatchError{
+				Need: bass.Pair{
+					A: bass.Symbol("x"),
+					D: bass.Ignore{},
+				},
+				Have: bass.Empty{},
 			},
 		},
 		{
 			Name: "invalid op 3",
 			Bass: "(op . false)",
-			Err:  bass.ErrBadSyntax,
+			Err: bass.BindMismatchError{
+				Need: bass.Pair{
+					A: bass.Symbol("formals"),
+					D: bass.Pair{
+						A: bass.Symbol("eformal"),
+						D: bass.Symbol("body"),
+					},
+				},
+				Have: bass.Bool(false),
+			},
 		},
 		{
 			Name: "invalid op 4",
 			Bass: "(op [x] . _)",
-			Err:  bass.ErrBadSyntax,
+			Err: bass.BindMismatchError{
+				Need: bass.Pair{
+					A: bass.Symbol("eformal"),
+					D: bass.Symbol("body"),
+				},
+				Have: bass.Ignore{},
+			},
 		},
 		{
 			Name:   "wrap",
