@@ -22,17 +22,12 @@ func (r Range) String() string {
 	return fmt.Sprintf("%s\t%d:%d..%d:%d", r.Start.File, r.Start.Ln, r.Start.Col, r.End.Ln, r.End.Col)
 }
 
-func (value Annotated) Eval(env *Env) (Value, error) {
-	res, err := value.Value.Eval(env)
-	if err != nil {
-		return nil, AnnotatedError{
-			Value: value.Value,
-			Range: value.Range,
-			Err:   err,
-		}
+func (value Annotated) Eval(env *Env, cont Cont) (ReadyCont, error) {
+	if value.Comment == "" {
+		return value.Value.Eval(env, cont)
 	}
 
-	if value.Comment != "" {
+	rdy, err := value.Value.Eval(env, Continue(func(res Value) (Value, error) {
 		env.Commentary = append(env.Commentary, Annotated{
 			Comment: value.Comment,
 			Value:   res,
@@ -42,7 +37,16 @@ func (value Annotated) Eval(env *Env) (Value, error) {
 		if err := res.Decode(&sym); err == nil {
 			env.Docs[sym] = value.Comment
 		}
+
+		return cont.Call(res), nil
+	}))
+	if err != nil {
+		return nil, AnnotatedError{
+			Value: value.Value,
+			Range: value.Range,
+			Err:   err,
+		}
 	}
 
-	return res, nil
+	return rdy, nil
 }

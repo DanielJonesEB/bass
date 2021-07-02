@@ -4,12 +4,16 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 
 	"github.com/mattn/go-colorable"
 	"github.com/spf13/cobra"
 	"github.com/vito/bass"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
 var Stderr = colorable.NewColorableStderr()
@@ -29,6 +33,10 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
