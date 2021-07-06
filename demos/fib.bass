@@ -4,6 +4,9 @@
     n
     (+ (fib (- n 2)) (fib (- n 1)))))
 
+(defn fib [n]
+  x)
+
 (doc fib)
 
 (emit (fib 20) *stdout*)

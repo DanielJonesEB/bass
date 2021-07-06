@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"fmt"
 )
 
 //go:embed std/*.bass
@@ -263,6 +264,11 @@ func init() {
 		`receive the next value from a source`,
 		`If the stream has ended, no value will be available. A default value may be provided, otherwise an error is raised.`,
 	)
+
+	ground.Set("log",
+		Func("log", func(val Value) {
+			fmt.Println(val)
+		}))
 
 	for _, lib := range []string{
 		"std/root.bass",

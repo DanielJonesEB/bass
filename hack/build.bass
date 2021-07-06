@@ -1,0 +1,43 @@
+; #!/usr/bin/env bass
+
+(def root (first *args*)) ; path to source directory (TODO: is trailing slash required? seems awkward)
+
+; args to .foo go to stdin;
+;
+; keyword args may be specified
+;   - unambiguous because keywords should not be sent as literal values
+;
+;   :args - string arguments to pass on argv
+;   :in   - string working directory to run in
+;
+; ./bass expands to a path in the prototype's working directory, is passed as
+; an absolute path string argument
+; (.go :args ["build" "-o" ./bass "./cmd/bass"]
+;      :from root)
+
+; ($ "go" "build" "-o" ./bass "./cmd/bass"
+;    :from root)
+
+(.go :args ["build" "-o" ./bass "./cmd/bass"])
+
+(defn each [stream cb]
+  (def val (next stream _))
+  (if (ignore? val)
+    null
+    (do
+      (cb val)
+      (each stream cb))))
+
+(.jq {:a 1} {:a 2} {:a 3}
+     :args [".a"]
+     :out (fn [stream] (each stream log)))
+
+($ .go "build" "-o" ./bass "./cmd/bass")
+
+(defop with [bindings . body] env
+  )
+
+(with-stdout [stream (.jq {:a 1} {:a 2} {:a 3} :args [".a"])]
+  (each stream log))
+
+; (git .get {:uri "https://github.com/vito/bass"})

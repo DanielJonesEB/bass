@@ -1,0 +1,10 @@
+(defn fib-iter [a b num]
+  (if (= num 0)
+    b
+    (fib-iter (+ a b) a (- num 1))))
+
+; calculate the value at the given offset of the fibonacci sequence
+(defn fib [n]
+  (fib-iter 1 0 n))
+
+(emit (fib (next *stdout*)) *stdout*)

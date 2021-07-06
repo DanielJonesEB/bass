@@ -1,0 +1,199 @@
+(def apply
+  (fn (appv arg . opt)
+    (eval (cons (unwrap appv) arg)
+          (if (empty? opt)
+            (make-environment)
+            (car opt)))))
+
+(def cond
+  (op clauses env
+      (def aux
+        (fn ((test . body) . clauses)
+          (if (eval test env)
+            (apply (wrap sequence) body env)
+            (apply (wrap cond) clauses env))))
+      (if (empty? clauses)
+        null
+        (apply aux clauses))))
+
+(def drop
+  (fn (ls k)
+    (if (> k 0)
+      (drop (cdr ls) (- k 1))
+      ls)))
+
+(def map
+  (fn (f xs)
+    (if (empty? xs)
+      ()
+      (cons (f (car xs)) (map f (cdr xs))))))
+
+(def any?
+  (fn (f xs)
+    (cond
+      ((empty? xs) false)
+      ((f (car xs)) true)
+      (true (any? f (cdr xs))))))
+
+(def let
+  (op (bindings . body) env
+      (eval (cons (list* fn (map car bindings) body)
+                  (map cadr bindings))
+            env)))
+
+(def zip
+  (fn (f . xss)
+    (let ((rest (map cdr xss)))
+      (cons (apply f (map car xss))
+            (if (any? empty? rest)
+              ()
+              (apply zip (cons f rest)))))))
+
+(def not? (fn (x) (if x false true)))
+
+(def and?
+  (op xs e
+      (cond
+        ((empty? xs) true)
+        ((eval (car xs) e) (apply (wrap and?) (cdr xs) e))
+        (true false))))
+
+(def or?
+  (op xs e
+      (cond
+        ((empty? xs) false)
+        ((eval (car xs) e) true)
+        (true (apply (wrap or?) (cdr xs) e)))))
+
+(def combiner?
+  (fn xs
+    (apply (wrap and?) (map (fn (x) (or? (operative? x) (applicative? x))) xs))))
+
+(def at
+  (fn (n xs)
+    (car (drop n xs))))
+
+(def reduce
+  (fn (f xs a)
+    (if (empty? xs)
+      a
+      (reduce f (cdr xs) (f a (car xs))))))
+
+(def append
+  (fn xss
+    (def append2
+      (fn (xs ys)
+        (if (empty? xs)
+          ys
+          (cons (car xs) (append2 (cdr xs) ys)))))
+
+    (reduce append2 xss ())))
+
+(def list-neighbors
+  (fn (xs)
+    (if (> (length xs) 1)
+      (cons (list (car xs) (cadr xs)) (list-neighbors (cdr xs)))
+      ())))
+
+(def filter
+  (fn (accept? xs)
+    (if (empty? xs)
+      ()
+      (let (((a . bs) xs))
+        (if (apply accept? (list a))
+          (cons a (filter accept? bs))
+          (filter accept? bs))))))
+
+(def lookup
+  (fn (n ps)
+    (if (empty? ps)
+      (cons false ())
+      (let ((((k v) . rest) ps))
+        (if (equal? n k)
+          (cons true v)
+          (lookup n rest))))))
+
+(def member?
+  (fn (x xs)
+    (cond
+      ((empty? xs) false)
+      ((equal? x (car xs)) true)
+      (true (member? x (cdr xs))))))
+
+(def get-current-environment (wrap (op () e e)))
+
+(def make-ground-static-environment
+  (fn () (get-current-environment)))
+
+(def ground (get-current-environment))
+
+(def let*
+  (op (bindings . body) env
+      (eval (if (empty? bindings)
+              (list* let bindings body)
+              (list let (list (car bindings))
+                    (list* let* (cdr bindings) body)))
+            env)))
+
+(def letrec
+  (op (bindings . body) env
+      (eval (list* let ()
+                   (list def
+                         (map car bindings)
+                         (cons list (map cadr bindings)))
+                   body)
+            env)))
+
+(def letrec*
+  (op (bindings . body) env
+      (eval (if (empty? bindings)
+              (list* letrec bindings body)
+              (list letrec (list (car bindings))
+                    (list* letrec* (cdr bindings) body)))
+            env)))
+
+(def let-redirect
+  (op (exp bindings . body) env
+      (eval (cons (eval (list* fn (map car bindings) body) (eval exp env))
+                  (map cadr bindings)) env)))
+
+(def let-safe
+  (op (bindings . body) env
+      (eval (list* let-redirect
+                   (make-hummus-static-environment)
+                   bindings
+                   body)
+            env)))
+
+(def remote-eval
+  (op (o e) d
+      (eval o (eval e d))))
+
+(def bindings->environment
+  (op bindings env
+      (eval (list let-redirect
+                  (make-environment)
+                  bindings
+                  (list get-current-environment))
+            env)))
+
+(def set!
+  (op (target formals values) env
+      (eval (list def formals (list (unwrap eval) values env))
+            (eval target env))))
+
+(def provide!
+  (op (symbols . body) env
+      (eval (list def symbols
+                  (list let ()
+                        (cons sequence body)
+                        (cons list symbols)))
+            env)))
+
+(def import!
+  (op (exp . symbols) env
+      (eval (list set! env symbols (cons list symbols))
+            (eval exp env))))
+
+(def for-each
+  (wrap (op (x f) env (apply map (list f x) env) null)))

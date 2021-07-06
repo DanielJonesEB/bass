@@ -1,0 +1,7 @@
+(with [fib (./fib-proto.bass 20)]
+  (emit (next fib) *stdout*))
+
+(def *project* ../)
+
+(with [build (./build *project*)]
+  (emit (next build) *stdout))

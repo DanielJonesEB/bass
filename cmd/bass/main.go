@@ -24,8 +24,8 @@ var rootCmd = &cobra.Command{
 	Version:       bass.Version,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	Args:          cobra.MaximumNArgs(1),
-	RunE:          root,
+	// Args:          cobra.MaximumNArgs(1),
+	RunE: root,
 }
 
 func main() {
@@ -34,20 +34,24 @@ func main() {
 
 	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {
+		fmt.Fprintln(Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func root(cmd *cobra.Command, args []string) error {
-	switch len(args) {
-	case 1:
-		err := run(bass.New(), args[0])
-		if err != nil {
-			fmt.Fprintln(Stderr, err)
-		}
-
-		return err
-	default:
+	if len(args) == 0 {
 		return repl(bass.New())
 	}
+
+	env := bass.New()
+
+	var argVals []bass.Value
+	for _, arg := range args[1:] {
+		argVals = append(argVals, bass.String(arg))
+	}
+
+	env.Set("*args*", bass.NewList(argVals...))
+
+	return run(env, args[0])
 }
