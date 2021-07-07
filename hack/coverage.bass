@@ -1,0 +1,55 @@
+; #!/usr/bin/env bass
+
+; usage: coverage <path/to/repo>
+(def (repo) *args*)
+
+; don't have to write to /tmp, just trust that working directory is writable
+($ .go "test" "-coverprofile" ./cover.out
+   :from repo)
+
+($ .go "tool" "cover" "-html" ./cover.out "-o" ./cover.html
+   :from repo)
+
+($ .go "list" "-json" "./..."
+   :from repo
+   ($ .jq ".Dir"))
+
+(pipe ($ .go "list" "-json" "./..."
+         :from repo)
+      ($ .jq ".Dir")
+      (fn [dirs] (each dirs log)))
+
+(pipe ($ .go "list" "-json" "./..."
+         :from repo)
+      ($ .jq ".Dir" (fn [dirs] (each dirs log))))
+
+($ .luakit ./cover.html)
+
+; prototype can be dereferenced to get a combiner
+; (@git .get bucket)
+
+; (def bass {:uri "https://github.com/vito/bass"})
+
+; makes caching results impossible on k8s, where 1 pod = 1 command
+; (let [g @git]
+;   (pipe [versions (g .check bass)
+;          latest (g .get bass (last versions))]
+;     (emit latest *stdout*)))
+
+; prototype itself is a combiner for running commands
+(def git
+  ; raises an error if no appropriate runtime is found
+  (runtime {:repository "concourse/git-resource"}
+           :protocol "concourse-ci.org/resource"
+           :platform {:os "linux"}))
+
+(git .get bucket)
+
+; $ and git are 'command interpreters'?
+;
+; $ = host
+;   * runs command in unique working directory
+;     * unless a working directory is given?
+;     * maybe bass scripts and prototypes do this?
+;       * bass runs in empty working directory, only paths that are emitted are kept
+;       * if nothing emitted, entire directory is cleaned up

@@ -1,0 +1,199 @@
+#!/usr/bin/env bass
+
+(def git
+  {:platform linux
+   :protocol "concourse-ci.org/resource"
+   :image {:repository "concourse/git-resource"}})
+
+(def bass
+  {:prototype git
+   :source {:uri "https://github.com/vito/bass"}})
+
+(def unit
+  (job [bass bass]
+    ; how do you execute a script from a fetched asset?
+    ;
+    ; (is this isomorphic to 'how do you execute a command from a prototype'?)
+    ;
+    ; maybe it's a combiner somehow?
+    (bass ./hack/build)
+    (bass ./hack/test)
+
+    ; the commands need bass passed to them lol
+    (bass ./hack/build bass)
+    (bass ./hack/test bass)
+
+    ; what kind of value is 'bass' anyway? an artifact thunk? making those
+    ; combiners is ... weird.
+
+    ; this feels similar to (.get object)
+    (./hack/build bass)
+    (./hack/test bass)
+
+    ; but it is kind of weird to overload it as both the first argument to
+    ; the script and a special argument used to locate the script itself
+
+    ; this makes it more explicit at the expense of some repetition
+    (./hack/build bass :from bass)
+    (./hack/test bass :from bass)
+
+    ; but that's inconsistent with how paths are usually resolved, i.e. `.` is
+    ; constant
+    ;
+    ; how about this? building on / being significant
+    (bass/hack/build bass)
+    (bass/hack/test bass)
+
+    ; would this approach mean prototypes work like this?:
+    ;
+    ;   (.get git {:source s :version v})
+    ;
+    ; so ./foo/bar is relative to artifact? and .foo is a "command" relative to
+    ; the runtime environment? (i.e. $PATH on the host, <args> in an OCI image)
+    ;
+    ; so should there be a distinction between `.foo` (relative to image) and
+    ; `!foo` (relative to host environment)? (they yell at you until you put
+    ; them in an image)
+    ;
+    ; and does that imply `.foo` is encapsulated and runs with an artifact dir
+    ; and such?
+
+    ; all of this is kind of confusing IMO. it conflicts with the previous
+    ; notion that ./foo is a path relative to the prototype's running
+    ; directory. having it turn into 'relative to environment' when used as
+    ; a combiner conflicts with the previous dedsign of having `(./foo bar)`
+    ; execute a file written to the prototype's working directory.
+    ;
+    ; maybe leave ./foo/bar as just running the file relative to cwd, and
+    ; introduce something else for running commands in another environment
+
+    ; artifacts are unpacked to ./bass/ in prototype directory?
+    ;
+    ; could be bind-mounted
+    (./bass/hack/build ./bass)
+
+    ; how does that handle concurrently running jobs though? where do the files
+    ; live?
+    ;
+    ; shared working directory mutable state is what led to creating concourse
+    ; in the first place - surely not that?
+    ;
+    ; maybe you call a prototype with artifacts and they're mounted to paths?
+    ; but it wouldn't know what to call the target mount directories without
+    ; running the prototype first.
+    ;
+    ; passing absolute paths makes more sense imo.
+    ;
+    ; how about just having artifact thunks be paths, and if they end in /
+    ; they'll be path combiners?
+    ((bass "hack/build") bass)
+
+    ; which brings me back to this
+    (bass/hack/build bass)
+
+    ; does the path need to be tied to the current prototype?
+    ;
+    ; i don't think so, since it should be a read-only mount. but if a
+    ; copy-on-write mount is used, it could be mounted under the current
+    ; prototype's directory.
+
+    ; could be worth thinking about what the "current thunk" looks like for a
+    ; running script either way - i.e. what gets paired with a path written by
+    ; this script to form an artifact thunk?
+    ;
+    ; does it include path arguments? do they include modified timestamps?
+    {:command {:path "/.../bass/hack/build" :at "2021-01-23 9:06PM"}
+     :args [{:path "/.../bass" :at "2021-01-23 9:06PM"}]
+     :stdin (values read from *stdin*)
+    }
+
+    ; interesting that command is of the same type as args; should it just all
+    ; be args like a sexpr? would be consistent with argv[0] being the program.
+    {:args [{:path "/.../bass/hack/build" :at "2021-01-23 9:06PM"}
+            {:path "/.../bass" :at "2021-01-23 9:06PM"}]
+     :stdin (values read from *stdin*)
+    }
+
+    ; what about commands?
+    (.go :args ["build" "-o" ./fizz "./cmd/bass"]
+         :from bass)
+    {:args [{:path "go"}
+            "build"
+            "-o"
+            {:path "./fizz"}
+            "./cmd/bass"]
+     :stdin []
+     :from {:path "/.../bass" :at "2021-01-23 9:06PM"}
+    }
+
+    ; ...eh, maybe that just shouln't be represented as a reproducible artifact
+
+    ; how about ! for one offs? the entire script is the prototype?
+    (!go :args ["build" "-o" ./fizz "./cmd/bass"]
+         :from bass)
+
+    ; or maybe it's weird that it's writing to some other directory in the
+    ; first place?
+    ;
+    ; though the directory should be writable, since it'll be the directory
+    ; being populated. maybe it makes sense - it's not an independently
+    ; cacheable prototype, it's part of an outer one.
+    ;
+    ; would making it independently cacheable be particularly useful?
+    ;
+    ; it could feel similar to `make`, but every input is accounted for, and
+    ; tracked by modified time.
+    ;
+    ; so yeah, maybe prototypes should only be able to write to their outputs
+    (let [built (path (!go :args ["build" "-o" "./bass" "./cmd/bass"]
+                           :from bass)
+                      "./bass")]
+
+    ; that didn't really work out. how do i distinguish between the source and
+    ; the destination? how does :from work?
+    ;
+    ; kinda feels like it's better off either having them not be prototypes, or
+    ; just embracing the fact that they embed absolute host paths, but at least
+    ; the paths are deterministic, so the caching would be durable anyway?
+
+    ; should stdin be args passsed to the combiner? or :stdin?
+    ;
+    ; args looks cooler.
+    ;
+    ; k.
+
+    ; should :args be named something else?
+    ;
+    ; having both string :args and arbitrary args as actual args is confusing.
+    ))
+
+
+;;;
+
+(def git
+  (runtime
+    :platform linux
+    :protocol "concourse-ci.org/resource" ; TODO: can protocol just be a composed function?
+    :image {:repository "concourse/git-resource"}))
+
+(defn bass [command . args]
+  (apply git [command {:uri "https://github.com/vito/bass"} . args]))
+
+(pipe [versions (bass .check) ; XXX: how does this actually work if 'bass' executes the command?
+       latest (bass .get (last versions))]
+  ; XXX: borked; need (last latest)/hack/ci, but assigning it is awkward
+  ; (need another let)
+  (latest/hack/ci (last latest))) 
+
+(bass .check
+      (fn [versions]
+        (bass .get (last versions)
+              (fn [got] (last got))
+
+(let [latest-version (bass .check last)
+      latest-bass (bass .get latest-version next)]
+  (latest-bass/hack/test))
+
+(let [latest-version (check bass last)
+      latest-bass (get bass latest-version)]
+  (latest-bass/hack/test))

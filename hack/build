@@ -1,0 +1,120 @@
+#!/usr/bin/env bass
+
+; usage: build <path/to/bass>
+(def (src) *args*)
+
+(defn filename [os arch]
+  (str "bass_" os "_" arch
+       (if (= os "windows")
+         ".exe"
+         "")))
+
+(defn build [os arch]
+  (let [file ./(filename os)]
+    ; point 1: this doesn't need to run in its own working directory, because
+    ; it's being run from a prototype already.
+    ;
+    ; how should that be expressed? previously I imagined prototypes would
+    ; always write to their own abstract cwd.
+    ;
+    ; maybe just leave the .foo interface cut and dry, and make capturing
+    ; outputs explicit, but have that be implemented by protocols? or
+    ; something?
+    ;
+    ; point #2: how long is the stream kept open? maybe a stream sink has to be
+    ; passed? if none provided, response is discarded?
+    ;
+    ; how is a response handled, then?
+    ($ .go "build" "-o" file "./cmd/bass"
+       :env {:GOOS os :GOARCH arch}
+       :from src)
+
+    ($ .jq ".a"
+       :stdin [{:a 1} {:a 2} {:a 3}])
+
+
+    ; maybe it's specified as a kwarg?
+    ($ .go "list" "--json" "./..."
+       :env {:GOOS os :GOARCH arch}
+       :from src
+       :handler (fn [stream] (each stream log)))
+
+    (.go "build" "-o" file "./cmd/bass"
+         :env {:GOOS os :GOARCH arch}
+         :from src)
+
+    (.jq ".a"
+         :stdin [{:a 1} {:a 2} {:a 3}])
+
+
+    ; maybe it's specified as a kwarg?
+    (.go "list" "--json" "./..."
+       :env {:GOOS os :GOARCH arch}
+       :from src
+       :out
+       (fn [golist]
+         (.jq ".Dir"
+              :stdin golist
+              :out (fn (dirs) (each dirs log)))))
+
+    (with-pipe [golist (.go "list" "--json" "./..."
+                            :env {:GOOS os :GOARCH arch}
+                            :from src)
+                dirs (.jq ".Dir" :stdin golist)]
+      (each dirs log))
+
+    ; maybe it's specified as a kwarg?
+    (.go "list" "--json" "./..."
+       :env {:GOOS os :GOARCH arch}
+       :from src
+       (fn [golist]
+         (.jq ".Dir"
+              :stdin golist
+              :out (fn (dirs) (each dirs log)))))
+
+    (with-pipe [golist (.go "list" "--json" "./..."
+                            :env {:GOOS os :GOARCH arch}
+                            :from src)
+                dirs (.jq ".Dir" :stdin golist)]
+      (each dirs log))
+
+
+    ($ .go "list" "--json" "./..."
+       :env {:GOOS os :GOARCH arch}
+       :from src
+       :out
+       (fn [golist]
+         ($ .jq ".Dir"
+            :stdin golist
+            :out (fn (dirs) (each dirs log)))))
+
+    (| [golist ($ .go "list" "--json" "./..."
+                  :env {:GOOS os :GOARCH arch}
+                  :from src)
+        dirs ($ .jq ".Dir" :stdin golist)]
+      (each dirs log))
+
+
+    (.go "list" "--json" "./..."
+         :env {:GOOS os :GOARCH arch}
+         :from src
+         :out
+         (fn [golist]
+           (.jq ".Dir"
+                :stdin golist
+                :out (fn (dirs) (each dirs log)))))
+
+    (| [golist (.go "list" "--json" "./..."
+                    :env {:GOOS os :GOARCH arch}
+                    :from src)
+        dirs (.jq ".Dir" :stdin golist)]
+      (each dirs log))
+
+    file))
+
+(def assets
+  {:linux (build "linux" "amd64")
+   :darwin (build "darwin" "amd64")
+   :windows (build "windows" "amd64")})
+
+(emit assets *stdout*)
