@@ -3,6 +3,19 @@
 ; usage: coverage <path/to/repo>
 (def (repo) *args*)
 
+; $ : path argv... kwargs? handler? => any
+;   ; constructs and evaluates workload with args as argv
+;
+; bass : path stdin... handler? => any
+
+; prototypes construct and evaluate workload with args as stdin, processed by a
+; protocol; needs to be able to run a workload too
+;
+; add 'run : workload -> handler -> any'?
+;
+; $ runs directly, or respects runtime dispatch if a platform is configured
+; prototypes process and then run
+
 ; don't have to write to /tmp, just trust that working directory is writable
 ($ .go "test" "-coverprofile" ./cover.out
    :from repo)
@@ -10,18 +23,48 @@
 ($ .go "tool" "cover" "-html" ./cover.out "-o" ./cover.html
    :from repo)
 
-($ .go "list" "-json" "./..."
-   :from repo
-   ($ .jq ".Dir"))
+(defn all [source]
+  (let [n (next source _)]
+    (if (ignore? n)
+      []
+      (cons n (all source)))))
 
-(pipe ($ .go "list" "-json" "./..."
-         :from repo)
-      ($ .jq ".Dir")
-      (fn [dirs] (each dirs log)))
+($ .go "list" "-json" "./..." :from repo
+   (fn [pkgs]
+     ($ .jq ".Dir" :stdin (all pkgs)
+        (fn [dirs]
+          (each dirs log)))))
+
+(pipe ($ .go "list" "-json" "./..." :from repo)
+      ($ .jq ".Dir" (fn [dirs] (each dirs log))))
 
 (pipe ($ .go "list" "-json" "./..."
          :from repo)
       ($ .jq ".Dir" (fn [dirs] (each dirs log))))
+
+; $ : workload? [handler?]
+(defn command args
+  {:command args})
+
+(defn in [dir workload]
+  (new workload :from dir))
+
+(defn $ [command . args]
+  (new (command command) :stdin args))
+
+($ (command-in repo (command .go "test" "-coverprofile" ./cover.out))))
+
+($ (in repo (command .go)) "list" "-json" "./...")
+
+($ (in repo (command .go "list" "-json" "./..."))
+   (fn [list]
+     ($ (.jq ".Dir")
+        (fn [dirs]
+          (each dirs log)))))
+
+(pipe ($ (in repo (.go "list" "-json" "./...")))
+      ($ (.jq ".Dir"))
+      (fn [dirs] (each dirs log)))
 
 ($ .luakit ./cover.html)
 
