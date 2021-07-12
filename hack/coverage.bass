@@ -1,5 +1,8 @@
 ; #!/usr/bin/env bass
 
+; XXX: note to future self: this file is a messy stream of consciousness; the
+; final decisions in terms of design are under demos/commands/
+
 ; usage: coverage <path/to/repo>
 (def (repo) *args*)
 
@@ -23,6 +26,133 @@
 ($ .go "tool" "cover" "-html" ./cover.out "-o" ./cover.html
    :from repo)
 
+(run ($ .go "test" "-coverprofile" ./cover.out
+        :from repo))
+
+(run ($ .go "tool" "cover" "-html" ./cover.out "-o" ./cover.html
+        :from repo))
+
+(run {:args [.go "tool" "cover" "-html" ./cover.out "-o" ./cover.html]
+      :from repo})
+
+; instead of 'null', 'host: true'?
+;
+; would allow a system to forbid executing commands on the host by
+; un-configuring it
+(run {:native true}
+     {:args [.go "tool" "cover" "-html" ./cover.out "-o" ./cover.html]
+      :from repo})
+
+(bass .check (fn [versions] (each versions log)))
+
+(run {:platform {:os "linux"}
+      :image {:repository "concourse/git-resource"}
+      :args [/opt/resource/check]
+      :stdin [{:source {:uri "https://github.com/vito/bass"}}]}
+     (fn [versions] (each versions log)))
+
+(run {:platform {:os "linux"
+                 :image {:repository "concourse/git-resource"}}
+      :args [/opt/resource/check]
+      :stdin [{:source {:uri "https://github.com/vito/bass"}}]}
+     (fn [versions] (each versions log)))
+
+(run {:platform {:os "linux"}
+      :context {:image {:repository "concourse/git-resource"}}
+      :args [/opt/resource/check]
+      :stdin [{:source {:uri "https://github.com/vito/bass"}}]}
+     (fn [versions] (each versions log)))
+
+(run {:os "linux"}
+     {:image {:repository "concourse/git-resource"}
+      :args [/opt/resource/check]
+      :stdin [{:source {:uri "https://github.com/vito/bass"}}]}
+     (fn [versions] (each versions log)))
+
+(defn parse-cmdline-kwarg [cmdline key val]
+  (cond
+    ((= :in key)
+     (assoc cmdline :in val))
+
+    ((= :out key)
+     (assoc cmdline :out val))
+
+    (true
+      (assoc cmdline :kwargs (assoc (:kwargs cmdline) key val)))))
+
+; parses a commandline, extracting :in :out from kwargs and returning the
+; remaining kwargs and args.
+(defn parse-cmdline [cmdline cli]
+  (cond
+    [(empty? cli) cmdline]
+
+    [(keyword? (first cli))
+     (let [key (first cli)
+           val (first (rest cli))
+           clirest (rest (rest cli))]
+       (extract-kwargs
+         (process-cmdline-kwarg cmdline key val)
+         clirest))]
+
+    [true
+     (extract-kwargs
+       (assoc cmdline :args (append (:args cmdline) [(first cli)]))
+       (rest cli))]))
+
+(defn workload-cmdline [mixed]
+  (parse-cmdline
+    {:args []
+     :kwargs {}
+     :in null
+     :out null}
+    mixed))
+
+(defn $ [cmd . args]
+  (let [cmdline (workload-cmdline args)]
+    (run {:host true}
+         (assoc (:kwargs cmdline)
+                :path cmd
+                :args (cons (str cmd) (:args cmdline)))
+         (:in cmdline)
+         (:out cmdline))))
+
+(defn concourse-resource [platform base source]
+  (fn [cmd . args]
+    (let [cmdline (workload-cmdline args)
+          workload (cmd :stdin (:args cmdline))
+          resource-workload (merge base (:workload cmdline))]
+      (run platform
+           (merge base resource-workload)
+           (concourse-resource-protocol workload)
+           (:in cmdline)
+           (:out cmdline)))))
+
+(def booklit
+  (concourse-resource
+    {:os "linux"}
+    {:image {:repository "concourse/git-resource"}}
+    {:uri "https://github.com/vito/booklit"}))
+
+; it's weird for '$' and 'booklit' to behave differently
+;
+; is there ever a need to construct a thunk manually?
+(run (booklit .check) (fn [versions] (each versions log)))
+
+($ .go "list" "-json" "./..."
+   :dir repo
+   :out
+   (fn [pkgs]
+     ($ .jq ".Dir"
+        :in pkgs
+        :out (fn [dirs] (each dirs log)))))
+
+=>
+
+(run
+  ($ .jq ".Dir"
+     :stdin ($ .go "list" "-json" "./..." :dir repo))
+  (fn [dirs] (each dirs log)))
+
 (defn all [source]
   (let [n (next source _)]
     (if (ignore? n)
@@ -38,8 +168,7 @@
 (pipe ($ .go "list" "-json" "./..." :from repo)
       ($ .jq ".Dir" (fn [dirs] (each dirs log))))
 
-(pipe ($ .go "list" "-json" "./..."
-         :from repo)
+(pipe ($ .go "list" "-json" "./..." :from repo)
       ($ .jq ".Dir" (fn [dirs] (each dirs log))))
 
 ; $ : workload? [handler?]
@@ -85,6 +214,40 @@
   (runtime {:repository "concourse/git-resource"}
            :protocol "concourse-ci.org/resource"
            :platform {:os "linux"}))
+
+(defn $ [command . args]
+  (run (command :args args)))
+
+; ~/.bass/runtimes.json:
+;
+(def platforms-json
+  [{:platform {:os "linux"}
+    :command "bass-docker"
+    :config {:data-dir "~/.bass/data"}}])
+
+(def linux
+  {:os "linux"})
+
+(defn git args
+  (run (apply concourse-resource args)))
+  {; platform should be a non-function object so that it can be sent over the
+   ; wire and resolved to something else on the other side
+   :platform linux
+
+   ; protocol can be a function; it doesn't get sent over the wire
+   :protocol concourse-resource
+
+   :image {:repository "concourse/git-resource"}})
+
+(def bass
+  {:prototype git
+   :uri "https://github.com/vito/bass"})
+
+(defn git args
+  (linux (apply concourse-resource args)))
+
+(defn bass [command . args]
+  (apply git [command {:uri "https://github.com/vito/bass"} . args]))
 
 (git .get bucket)
 

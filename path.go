@@ -215,6 +215,10 @@ func (combiner CommandPath) Call(val Value, env *Env, cont Cont) ReadyCont {
 		return cont.Call(nil, err)
 	}
 
+	// prepend command path to args as argv[0]
+	workload.Args = Pair{combiner, workload.Args}
+	workload.Stdin = NewList(stdinArgs...) // XXX?: prepend or append?
+
 	var argv []string
 	if workload.Args != nil {
 		err = Each(workload.Args, func(arg Value) error {
