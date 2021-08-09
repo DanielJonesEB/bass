@@ -1,6 +1,7 @@
 package runtimes
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"io"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/concourse/go-archive/tarfs"
 	"github.com/vito/bass"
+	"gopkg.in/yaml.v2"
 )
 
 func NewEnv(cwd string, runtime Runtime) *bass.Env {
@@ -54,6 +56,29 @@ func NewEnv(cwd string, runtime Runtime) *bass.Env {
 			return tarfs.Extract(r, filepath.Join(cwd, dest.FromSlash()))
 		}),
 		`export a workload path to a local path`)
+
+	env.Set("yaml-decode",
+		bass.Func("yaml-decode", func(ctx context.Context, path bass.WorkloadPath) (bass.Value, error) {
+			buf := new(bytes.Buffer)
+			err := runtime.Export(ctx, buf, path.Workload, path.Path.FilesystemPath())
+			if err != nil {
+				return nil, err
+			}
+
+			tr := tar.NewReader(buf)
+			_, err = tr.Next()
+			if err != nil {
+				return nil, err
+			}
+
+			var v interface{}
+			err = yaml.NewDecoder(tr).Decode(&v)
+			if err != nil {
+				return nil, err
+			}
+
+			return bass.ValueOf(v)
+		}))
 
 	return bass.NewEnv(env)
 }

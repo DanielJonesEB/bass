@@ -1,0 +1,155 @@
+#!/usr/bin/env bass
+
+;; resource interface
+; TODO: move to a lib
+
+(defn resource [platform image source]
+  (defn check [version]
+    (-> (/opt/resource/check {:source source :version version})
+        (on-platform platform)
+        (in-image image)))
+
+  (defn get [version params]
+    (-> (/opt/resource/in {:source source :version version :params params})
+        (with-args ./)
+        (on-platform platform)
+        (in-image image)))
+
+  (defn put [params]
+    (-> (/opt/resource/out {:source source :params params})
+        (with-args ./)
+        (on-platform platform)
+        (in-image image)))
+
+  (fn cmdline
+    (case cmdline
+      [.check]
+      (apply stream (next (run (check null))))
+
+      [.check version]
+      (apply stream (next (run (check version))))
+
+      [.get version . params]
+      (path (get version (list->object params)) ./)
+
+      [.get-metadata version . params]
+      (:metadata (next (run (get version (list->object params)))))
+
+      [.put . params]
+      (next (run (put version (list->object params)))))))
+
+(defn get-latest [r . kwargs]
+  (r .get (last (r .check)) . kwargs))
+
+;; types
+
+(def git
+  {:repository "concourse/git-resource"})
+
+(def registry-image
+  {:repository "concourse/registry-image-resource"})
+
+(def linux
+  {:os "linux"})
+
+;; resources
+
+(def booklit
+  (resource linux git {:uri "https://github.com/vito/booklit"}))
+
+;; tasks impl
+
+; runs a Concourse task
+(defn get-latest-image-resource [resource . params]
+  (let [got (get-latest resource :format "oci" . params)]
+    got/image.tar))
+
+(defn get-image-resource [resource version . kwargs]
+  (let [got (get resource version :format "oci" . params)]
+    got/image.tar))
+
+(provide (init-concourse)
+  (defn init-concourse concourse-kwargs
+    (fn cmdline
+      (case cmdline
+        [.run-task file . params]
+        (run-task (list->object concourse-kwargs)
+                  (yaml-decode file)
+                  . params))))
+
+  (defn run-task [concourse-config task-config . kwopts]
+    (let [opts (list->object kwopts)
+          workload (task-workload concourse-config task-config opts)
+
+          output-configs (:outputs task-config [])
+          output-pairs (map (fn [output]
+                              (let [name (:name output)
+                                    src (:path output name)]
+                                [(string->keyword name)
+                                 (path workload (string->dir src))]))
+                            output-configs)]
+      (dump workload)
+      {:outputs (list->object (apply append output-pairs))
+       :result (run workload)}))
+
+  (defn task-workload [concourse-config task-config opts]
+    (let [platform-name (string->keyword (-> task-config :platform))
+          platform (-> concourse-config :platforms platform-name)
+
+          image-type-name (string->keyword (-> task-config :image-resource :type))
+          image-type (-> concourse-config :types image-type-name)
+          image-source (-> task-config :image-resource :source)
+          image-params (-> task-config :image-resource (:params {}) object->list)
+          image-version (-> task-config :image-resource (:version null))
+          image-resource (resource platform image-type image-source)
+          image (if image-version
+                  (get-image-resource image-resource version . image-params)
+                  (get-latest-image-resource image-resource . image-params))
+
+          path (string->path (-> task-config :run :path))
+          args (-> task-config :run (:args []))
+          dir (string->dir (-> task-config :run (:dir ".")))
+
+          insecure (:privileged opts)
+
+          inputs (:inputs opts {})
+          mounts (filter id (map (fn [i] (input-mount inputs i))
+                                 (:inputs task-config)))
+
+          ; TODO: convert nil values to empty strings
+          env (merge (:params task-config {})
+                     (:params opts {}))]
+      (-> (path)
+          (with-args . args)
+          (in-dir dir)
+          (with-mounts mounts)
+          (with-env env)
+          (on-platform platform)
+          (in-image image))))
+
+  (defn input-mount [inputs input]
+    (let [name (:name input)
+          path (:path input name)
+          input-name (string->keyword name)
+          input (input-name inputs)]
+      (if input
+        {:source input
+         :target (string->dir path)}
+        null))))
+
+;; configure concourse command interpreter
+
+(def concourse
+  (init-concourse
+    :platforms {:linux linux}
+    :types {:registry-image registry-image}))
+
+;; run!
+(def latest-booklit (get-latest booklit))
+
+(concourse .run-task latest-booklit/ci/test.yml
+           :inputs {:booklit latest-booklit})
+
+(let [built (concourse .run-task latest-booklit/ci/build.yml
+                       :inputs {:booklit latest-booklit})]
+  (export (:assets (:outputs built)) ./assets/))

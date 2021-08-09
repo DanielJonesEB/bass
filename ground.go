@@ -462,8 +462,44 @@ func init() {
 		`returns a flat list alternating an object's keys and values`,
 		`The returned list is the same form accepted by (map-pairs).`)
 
+	ground.Set("string->keyword",
+		Func("string->keyword", func(s string) Keyword {
+			return Keyword(unhyphenate(s))
+		}))
+
+	ground.Set("string->path",
+		Func("string->path", ParseFilesystemPath))
+
+	ground.Set("string->dir",
+		Func("string->dir", func(s string) (DirPath, error) {
+			fspath, err := ParseFilesystemPath(s)
+			if err != nil {
+				return DirPath{}, err
+			}
+
+			if fspath.IsDir() {
+				return fspath.(DirPath), nil
+			} else {
+				return DirPath{
+					Path: fspath.(FilePath).Path,
+				}, nil
+			}
+		}))
+
+	ground.Set("merge",
+		Func("merge", func(obj Object, objs ...Object) Object {
+			merged := obj.Clone()
+			for _, o := range objs {
+				for k, v := range o {
+					merged[k] = v
+				}
+			}
+			return merged
+		}))
+
 	for _, lib := range []string{
 		"std/root.bass",
+		"std/lists.bass",
 		"std/streams.bass",
 		"std/run.bass",
 	} {
@@ -472,7 +508,7 @@ func init() {
 			panic(err)
 		}
 
-		_, err = EvalReader(context.Background(), ground, file, internalName)
+		_, err = EvalReader(context.Background(), ground, file, lib)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "eval ground %s: %s\n", lib, err)
 		}

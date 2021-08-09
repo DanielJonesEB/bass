@@ -10,6 +10,7 @@ import (
 	"github.com/mattn/go-colorable"
 	"github.com/spf13/cobra"
 	"github.com/vito/bass"
+	"github.com/vito/bass/ioctx"
 	"github.com/vito/bass/runtimes"
 	"github.com/vito/bass/runtimes/docker"
 	_ "github.com/vito/bass/runtimes/docker"
@@ -42,6 +43,9 @@ func main() {
 	trace := &bass.Trace{}
 
 	ctx = bass.WithTrace(ctx, trace)
+
+	// wire up stderr for (log), (debug), etc.
+	ctx = ioctx.StderrToContext(ctx, Stderr)
 
 	err := rootCmd.ExecuteContext(ctx)
 	if err != nil {

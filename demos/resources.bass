@@ -35,6 +35,9 @@
       [.put . params]
       (next (run (put version (list->object params)))))))
 
+(defn get-latest [r . kwargs]
+  (r .get (last (r .check)) . kwargs))
+
 (def booklit
   (resource {:os "linux"}
             {:repository "concourse/git-resource"}
@@ -44,9 +47,6 @@
   (resource {:os "linux"}
             {:repository "concourse/registry-image-resource"}
             {:repository "golang"}))
-
-(defn get-latest [r . kwargs]
-  (r .get (last (r .check)) . kwargs))
 
 (defn image-resource [resource]
   (let [fetched (get-latest resource :format "oci")]
