@@ -1,0 +1,20 @@
+#!/usr/bin/env bass
+
+; import Concourse library
+(import (load (.concourse))
+        defresource
+        get-latest
+        load-pipeline)
+
+; define a Concourse resource
+(defresource booklit :git
+  {:uri "https://github.com/vito/booklit"})
+
+; fetch latest repo
+(def latest-booklit
+  (get-latest booklit))
+
+(def pipeline
+  (load-pipeline latest-booklit/ci/pipeline.yml))
+
+(pipeline:jobs:unit pipeline:jobs)

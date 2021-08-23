@@ -11,6 +11,8 @@
    image-resource
    get-image-resource
    get-latest-image-resource
+
+   load-pipeline
   )
   ; a convenient mapping from type keywords to their image
   (def *core-types*
@@ -48,10 +50,17 @@
           (with-args ./)
           (in-image image)))
 
-    (defn put [params]
-      (-> (/opt/resource/out {:source source :params params})
-          (with-args ./)
-          (in-image image)))
+    (defn put [artifacts params]
+      (let [mounts (reduce-kv (fn [ms name artifact] (cons {:source artifact :target (string->dir (keyword->string name))} ms)) [] artifacts)]
+        (-> (/opt/resource/out {:source source :params params})
+            (with-args ./)
+            (with-mounts (log mounts))
+            (with-env-var :ATC-EXTERNAL-URL "TODO")
+            (with-env-var :BUILD-JOB-NAME "TODO")
+            (with-env-var :BUILD-NAME "TODO")
+            (with-env-var :BUILD-ID "TODO")
+            (in-image image)
+            log)))
 
     ; TODO: alternatively, define an env and return it
     (fn cmdline
@@ -68,8 +77,8 @@
         [.get-metadata version & params]
         (:metadata (next (run (get version (list->object params)))))
 
-        [.put & params]
-        (next (run (put version (list->object params)))))))
+        [.put artifacts & params]
+        (next (run (put artifacts (list->object params)))))))
 
   ; defines a resource
   (defop defresource [name type source] env
@@ -103,6 +112,59 @@
           outputs (list->object (apply append output-pairs))]
       {:outputs outputs
        :result (run workload)}))
+
+  (defn load-pipeline [config-path]
+    (let [config (yaml:decode config-path)
+          types (foldl convert-type *config*:types config:resource-types)
+          resources (foldl (convert-resource types) {} config:resources)
+          jobs (foldl (convert-job resources) {} config:jobs)]
+      {:resources resources
+       :jobs jobs}))
+
+  (defn convert-resource [types]
+    (fn [r rs]
+      (let [name (string->keyword r:name)
+            type (string->keyword r:type)]
+        (assoc rs name (resource (type types) r:source)))))
+
+  (defn convert-type [t ts]
+    (let [name (string->keyword t:name)
+          type (string->keyword t:type)]
+      (assoc ts name (image-resource (resource (type ts) t:source)))))
+
+  (defn convert-job [resources]
+    (fn [j js]
+      (let [name (string->keyword j:name)]
+        (assoc js name (job j:plan resources)))))
+
+  (defn job [steps resources]
+    (fn [jobs]
+      (let [run-state {:jobs jobs
+                       :resources resources
+                       :artifacts {}}]
+        (:artifacts (foldl run-step run-state steps)))))
+
+  (defn run-step [step run-state]
+    (cond
+      step:get (run-get-step step run-state)
+      step:put (run-put-step step run-state)
+      step:task (run-task-step step run-state)))
+
+  (defn run-get-step [step run-state]
+    (let [artifact-name (string->keyword step:get)
+          resource-name (string->keyword (:resource step (:get step)))
+          resource (resource-name run-state:resources)]
+      (assoc run-state
+             :artifacts (assoc run-state:artifacts artifact-name (get-latest resource)))))
+
+  (defn run-put-step [step run-state]
+    (let [artifact-name (string->keyword step:put)
+          resource-name (string->keyword (:resource step (:put step)))
+          resource (resource-name run-state:resources)
+          params (object->list (:params step {}))]
+      ; TODO: artifacts somehow
+      (apply resource [.put run-state:artifacts & params])
+      run-state))
 
   (defn task->workload [config opts]
     (let [platform-name (string->keyword (-> config :platform))

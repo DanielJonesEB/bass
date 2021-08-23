@@ -495,6 +495,11 @@ func init() {
 			return Keyword(s)
 		}))
 
+	Ground.Set("keyword->string",
+		Func("keyword->string", "[kw]", func(kw Keyword) String {
+			return String(kw)
+		}))
+
 	Ground.Set("string->path",
 		Func("string->path", "[str]", ParseFilesystemPath))
 

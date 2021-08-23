@@ -6,7 +6,7 @@
 (defn foldl [f z xs]
   (case xs
     [] z
-    [x & xs'] (foldl f (f z x) xs')))
+    [x & xs'] (foldl f (f x z) xs')))
 
 (provide (append)
   (defn append1 [xs ys]
